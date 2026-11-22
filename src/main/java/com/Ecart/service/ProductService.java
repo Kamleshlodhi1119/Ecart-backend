@@ -3,11 +3,10 @@ package com.Ecart.service;
 import com.Ecart.dto.ProductDto;
 import com.Ecart.model.Product;
 import com.Ecart.repository.ProductRepository;
+import com.cloudinary.Cloudinary;
+import com.cloudinary.utils.ObjectUtils;
 import org.modelmapper.ModelMapper;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -18,10 +17,8 @@ import javax.imageio.ImageReader;
 import javax.imageio.stream.ImageInputStream;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -29,23 +26,21 @@ import java.util.stream.Collectors;
 @Service
 public class ProductService {
 
-    private static final Logger log = LoggerFactory.getLogger(ProductService.class);
     private static final long MAX_IMAGE_SIZE = 5 * 1024 * 1024;
     private static final long MAX_IMAGE_PIXELS = 12_000_000;
 
     private final ProductRepository productRepository;
     private final ModelMapper modelMapper;
+    private final Cloudinary cloudinary;
 
-    @Value("${app.upload-dir:${user.dir}/uploads}")
-    private String uploadDir;
-    
-    
-
-     public ProductService(ProductRepository productRepository, ModelMapper modelMapper) {
-	 	super();
-	 	this.productRepository = productRepository;
-	 	this.modelMapper = modelMapper;
-	 }
+    public ProductService(
+            ProductRepository productRepository,
+            ModelMapper modelMapper,
+            Cloudinary cloudinary) {
+        this.productRepository = productRepository;
+        this.modelMapper = modelMapper;
+        this.cloudinary = cloudinary;
+    }
 
 	public List<ProductDto> getAllActiveProducts() {
         return productRepository.findByActive(true)
@@ -110,32 +105,33 @@ public class ProductService {
     public String uploadProductImage(Long id, MultipartFile file) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Product not found"));
-        String extension = validateImage(file);
-        Path imageDirectory = getProductImageDirectory();
-        Path imagePath = imageDirectory.resolve(UUID.randomUUID() + extension);
+        validateImage(file);
 
+        Map<?, ?> uploadResult;
         try {
-            Files.createDirectories(imageDirectory);
-            file.transferTo(imagePath);
+            uploadResult = cloudinary.uploader().upload(file.getBytes(), ObjectUtils.asMap(
+                    "resource_type", "image",
+                    "folder", "products",
+                    "public_id", UUID.randomUUID().toString(),
+                    "overwrite", false));
         } catch (IOException e) {
-            deleteImageFile(imagePath);
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Could not save product image", e);
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY, "Could not upload product image to Cloudinary", e);
         }
 
-        String previousImageUrl = product.getImageUrl();
-        product.setImageUrl("/products/" + imagePath.getFileName());
-        try {
-            productRepository.save(product);
-        } catch (RuntimeException e) {
-            deleteImageFile(imagePath);
-            throw e;
+        Object secureUrl = uploadResult.get("secure_url");
+        if (!(secureUrl instanceof String imageUrl) || imageUrl.isBlank()
+                || !imageUrl.startsWith("https://")) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_GATEWAY, "Cloudinary did not return a secure image URL");
         }
 
-        deleteManagedImage(previousImageUrl);
-        return product.getImageUrl();
+        product.setImageUrl(imageUrl);
+        productRepository.save(product);
+        return imageUrl;
     }
 
-    private String validateImage(MultipartFile file) {
+    private void validateImage(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "An image file is required");
         }
@@ -155,11 +151,8 @@ public class ProductService {
             ImageReader reader = readers.next();
             try {
                 reader.setInput(input, true, true);
-                String extension = switch (reader.getFormatName().toUpperCase()) {
-                    case "JPEG", "JPG" -> ".jpg";
-                    case "PNG" -> ".png";
-                    case "GIF" -> ".gif";
-                    case "BMP" -> ".bmp";
+                switch (reader.getFormatName().toUpperCase()) {
+                    case "JPEG", "JPG", "PNG", "GIF", "BMP" -> { }
                     default -> throw new ResponseStatusException(
                             HttpStatus.BAD_REQUEST, "Only JPEG, PNG, GIF, and BMP images are supported");
                 };
@@ -173,7 +166,6 @@ public class ProductService {
                     throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid image file");
                 }
                 decoded.flush();
-                return extension;
             } finally {
                 reader.dispose();
             }
@@ -193,35 +185,6 @@ public class ProductService {
         }
         return false;
     }
-
-    private void deleteManagedImage(String imageUrl) {
-        if (imageUrl == null || !imageUrl.startsWith("/products/")) {
-            return;
-        }
-        String filename = imageUrl.substring("/products/".length());
-        if (filename.isBlank() || filename.equals(".") || filename.equals("..")
-                || filename.contains("/") || filename.contains("\\")) {
-            return;
-        }
-        Path imageDirectory = getProductImageDirectory();
-        Path imagePath = imageDirectory.resolve(filename).normalize();
-        if (imagePath.getParent().equals(imageDirectory)) {
-            deleteImageFile(imagePath);
-        }
-    }
-
-    private Path getProductImageDirectory() {
-        return Paths.get(uploadDir, "products").toAbsolutePath().normalize();
-    }
-
-    private void deleteImageFile(Path imagePath) {
-        try {
-            Files.deleteIfExists(imagePath);
-        } catch (IOException e) {
-            log.warn("Could not delete product image {}", imagePath, e);
-        }
-    }
-
 
     @Transactional
     public boolean toggleProductStatus(Long id) {

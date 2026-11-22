@@ -29,9 +29,10 @@ This backend is a full-featured, scalable e-commerce platform built using Spring
 - Admin can manage orders and update statuses (e.g., pending, shipped, delivered).
 
 ### 🖼️ 5. Image Upload
-- File upload support via REST endpoints using MultipartFile.  
-- Stored in local directories or connected cloud storage.  
-- Image URLs returned in product responses.
+- Product images are validated and uploaded to Cloudinary over HTTPS.
+- The returned secure URL is saved in the product's `imageUrl` field and included in product responses.
+- Configure `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` as environment variables before starting the application. Do not commit Cloudinary credentials.
+- Upload an image as multipart field `image` to `POST /api/products/{id}/upload-image` with a valid authentication token.
 
 ### 💬 6. Feedback / Ratings
 - Users can submit product reviews and star ratings.  
@@ -81,4 +82,3 @@ This backend is a full-featured, scalable e-commerce platform built using Spring
 ![admin-feedbacks](https://github.com/user-attachments/assets/2e8a55a9-32ab-4459-a74f-19cf8ca04314)
 ![admin-customers](https://github.com/user-attachments/assets/29dd6427-93c4-4b67-b30c-ec09a24c3be2)
 ![search-product](https://github.com/user-attachments/assets/d5273657-c0a8-4d96-96cc-f673ef0b56bd)
-

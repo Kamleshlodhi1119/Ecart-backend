@@ -2,19 +2,18 @@ package com.Ecart.service;
 
 import com.Ecart.model.Product;
 import com.Ecart.repository.ProductRepository;
+import com.cloudinary.Cloudinary;
+import com.cloudinary.Uploader;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import org.modelmapper.ModelMapper;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -29,44 +29,41 @@ import static org.mockito.Mockito.when;
 
 class ProductServiceImageTest {
 
-    @TempDir
-    Path tempDir;
-
     private ProductRepository productRepository;
     private Product product;
     private ProductService productService;
+    private Cloudinary cloudinary;
+    private Uploader uploader;
 
     @BeforeEach
     void setUp() {
         productRepository = mock(ProductRepository.class);
+        cloudinary = mock(Cloudinary.class);
+        uploader = mock(Uploader.class);
         product = new Product();
         product.setId(7L);
-        product.setImageUrl("/products/old.png");
-        productService = new ProductService(productRepository, mock(ModelMapper.class));
-        ReflectionTestUtils.setField(productService, "uploadDir", tempDir.toString());
+        productService = new ProductService(productRepository, mock(ModelMapper.class), cloudinary);
         when(productRepository.findById(7L)).thenReturn(Optional.of(product));
         when(productRepository.findByIdForUpdate(7L)).thenReturn(Optional.of(product));
         when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(cloudinary.uploader()).thenReturn(uploader);
     }
 
     @Test
-    void uploadUsesValidatedUniqueImageAndRemovesPreviousImage() throws Exception {
-        Path productImages = tempDir.resolve("products");
-        Files.createDirectories(productImages);
-        Path previousImage = productImages.resolve("old.png");
-        Files.write(previousImage, new byte[] {1});
+    void uploadStoresSecureCloudinaryUrlOnProduct() throws Exception {
+        String secureUrl = "https://res.cloudinary.com/test-cloud/image/upload/products/test.png";
+        when(uploader.upload(any(byte[].class), anyMap())).thenReturn(Map.of("secure_url", secureUrl));
 
         String imageUrl = productService.uploadProductImage(7L, pngUpload());
 
-        assertTrue(imageUrl.matches("/products/[0-9a-f-]+\\.png"));
-        assertTrue(Files.exists(productImages.resolve(imageUrl.substring("/products/".length()))));
-        assertFalse(Files.exists(previousImage));
+        assertEquals(secureUrl, imageUrl);
         assertEquals(imageUrl, product.getImageUrl());
         verify(productRepository).save(product);
+        verify(uploader).upload(any(byte[].class), anyMap());
     }
 
     @Test
-    void uploadRejectsNonImageAndDoesNotSaveIt() {
+    void uploadRejectsNonImageAndDoesNotSaveIt() throws Exception {
         MockMultipartFile invalidFile = new MockMultipartFile(
                 "image", "picture.png", "image/png", "not an image".getBytes());
 
@@ -74,6 +71,7 @@ class ProductServiceImageTest {
                 () -> productService.uploadProductImage(7L, invalidFile));
 
         verify(productRepository, never()).save(any(Product.class));
+        verify(uploader, never()).upload(any(byte[].class), anyMap());
     }
 
     @Test
