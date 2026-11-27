@@ -1,11 +1,9 @@
 package com.Ecart.config;
 
 import com.Ecart.security.JwtAuthenticationFilter;
-
-import java.util.Arrays;
-
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -15,6 +13,8 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -26,7 +26,6 @@ public class SecurityConfig {
     public SecurityConfig(
             JwtAuthenticationFilter jwtAuthFilter,
             AuthenticationProvider authenticationProvider) {
-
         this.jwtAuthFilter = jwtAuthFilter;
         this.authenticationProvider = authenticationProvider;
     }
@@ -37,65 +36,37 @@ public class SecurityConfig {
 
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-
             .csrf(csrf -> csrf.disable())
-
+            .sessionManagement(session ->
+                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            )
             .authorizeHttpRequests(auth -> auth
-
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .requestMatchers("/", "/error").permitAll()
 
-                .requestMatchers("/api/products/*/upload-image").authenticated()
-
+                // Product image upload is temporarily public.
                 .requestMatchers(
-                    "/api/auth/customers/**",
-                    "/delete/**",
-                    "/cart/delete/**",
+                    HttpMethod.POST,
+                    "/api/products/*/upload-image"
+                ).authenticated()
+
+                // Existing public endpoints.
+                .requestMatchers(
+                    "/api/auth/**",
+                    "/api/customers/**",
+                    "/api/products/**",
                     "/products/**",
-                    "/cart/clearCart/**",
-                    "/api/customers/profile/**",
-                    "/api/auth/customers/getallUser/**",
-                    "/api/auth/customers/update/**",
-                    "/api/auth/register",
-                    "/api/products/search",
-                    "/cart/delete/byProduct/**",
-                    "/api/auth/login",
                     "/cart/**",
+                    "/delete/**",
                     "/update/quantity/**",
                     "/api/feedback/**",
-                    "/api/feedback/add/**",
-                    "/api/feedback/product/**",
-                    "/api/products/**",
-                    "/api/products/additem/**",
-                    "/api/feedback/submit/**",
-                    "/api/orders/all/**",
-                    "/api/auth/logout/**",
-                    "/api/auth/check-session/**"
-                ).permitAll()
-
-                .requestMatchers(
-                    "/api/auth/check-customer/**",
-                    "/api/auth/check-admin/**",
-                    "/api/products/allitems",
-                    "/admin/**",
                     "/api/orders/**",
-                    "/admin/admin-login",
-                    "/admin/admin-logout",
-                    "/admin/check-admin/**",
-                    "/admin/view-customers/**",
-                    "/admin/add-products/**"
+                    "/admin/**"
                 ).permitAll()
 
                 .anyRequest().authenticated()
             )
-
-            .sessionManagement(session ->
-                session.sessionCreationPolicy(
-                    SessionCreationPolicy.STATELESS
-                )
-            )
-
             .authenticationProvider(authenticationProvider)
-
             .addFilterBefore(
                 jwtAuthFilter,
                 UsernamePasswordAuthenticationFilter.class
@@ -109,12 +80,12 @@ public class SecurityConfig {
 
         CorsConfiguration configuration = new CorsConfiguration();
 
-        configuration.setAllowedOrigins(Arrays.asList(
+        configuration.setAllowedOrigins(List.of(
             "http://localhost:4200",
             "https://ecartmanagement.netlify.app"
         ));
 
-        configuration.setAllowedMethods(Arrays.asList(
+        configuration.setAllowedMethods(List.of(
             "GET",
             "POST",
             "PUT",
@@ -123,8 +94,8 @@ public class SecurityConfig {
             "OPTIONS"
         ));
 
-        configuration.setAllowedHeaders(Arrays.asList("*"));
-
+        configuration.setAllowedHeaders(List.of("*"));
+        configuration.setExposedHeaders(List.of("Authorization"));
         configuration.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source =

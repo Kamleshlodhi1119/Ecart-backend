@@ -30,6 +30,7 @@ This backend is a full-featured, scalable e-commerce platform built using Spring
 
 ### 🖼️ 5. Image Upload
 - Product images are validated and uploaded to Cloudinary over HTTPS.
+- Uploaded images are stored in the Cloudinary `clothes` folder with a generated public ID.
 - The returned secure URL is saved in the product's `imageUrl` field and included in product responses.
 - Configure `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` as environment variables before starting the application. Do not commit Cloudinary credentials.
 - Upload an image as multipart field `image` to `POST /api/products/{id}/upload-image` with a valid authentication token.
